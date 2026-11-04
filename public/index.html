@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iAcademyAI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark">IA</div>
+          <div>
+            <h1>iAcademyAI</h1>
+            <p>Skill ecosystem</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-target="overview">Dashboard</button>
+          <button class="nav-item" data-target="pathways">Pathways</button>
+          <button class="nav-item" data-target="competencies">Competencies</button>
+          <button class="nav-item" data-target="coach">AI Coach</button>
+          <button class="nav-item" data-target="labs">Labs</button>
+          <button class="nav-item" data-target="projects">Projects</button>
+        </nav>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Technology learning platform</p>
+            <h2>Competency-driven learning</h2>
+          </div>
+          <button class="primary-btn">Launch new challenge</button>
+        </header>
+
+        <div id="auth-panel" class="auth-panel">
+          <div class="auth-card">
+            <h3>Welcome back</h3>
+            <form id="login-form" class="auth-form">
+              <input type="email" id="login-email" placeholder="Email" required />
+              <input type="password" id="login-password" placeholder="Password" required />
+              <button type="submit" class="primary-btn">Sign in</button>
+            </form>
+          </div>
+          <div class="auth-card">
+            <h3>Create account</h3>
+            <form id="register-form" class="auth-form">
+              <input type="text" id="register-name" placeholder="Full name" required />
+              <input type="email" id="register-email" placeholder="Email" required />
+              <input type="password" id="register-password" placeholder="Password" required />
+              <button type="submit" class="primary-btn">Create account</button>
+            </form>
+          </div>
+        </div>
+
+        <div id="session-status" class="session-status hidden"></div>
+
+        <section id="overview" class="panel active-panel">
+          <div class="metric-grid" id="summary-grid"></div>
+          <div class="content-grid two-columns">
+            <div class="card">
+              <div class="card-header">
+                <h3>Skill domains</h3>
+                <span class="chip success">Live</span>
+              </div>
+              <div id="domain-list"></div>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h3>Next priorities</h3>
+                <span class="chip">AI-curated</span>
+              </div>
+              <ul id="priority-list" class="priority-list"></ul>
+            </div>
+          </div>
+        </section>
+
+        <section id="pathways" class="panel">
+          <div class="section-heading">
+            <h3>Learning pathways</h3>
+            <span class="chip">Adaptive</span>
+          </div>
+          <div id="pathway-list" class="card-grid"></div>
+        </section>
+
+        <section id="competencies" class="panel">
+          <div class="section-heading">
+            <h3>Competency engine</h3>
+            <span class="chip">Mastery tracking</span>
+          </div>
+          <div id="competency-list" class="stacked-list"></div>
+        </section>
+
+        <section id="coach" class="panel">
+          <div class="section-heading">
+            <h3>AI skills coach</h3>
+            <span class="chip">Teaching mode</span>
+          </div>
+          <div class="coach-shell">
+            <form id="coach-form" class="coach-form">
+              <textarea id="coach-input" rows="5" placeholder="Ask the coach about debugging, concepts, labs, or next steps..."></textarea>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Get guidance</button>
+              </div>
+            </form>
+            <div id="coach-output" class="coach-output empty-state">
+              Ask a question to receive adaptive guidance and a progressive hint ladder.
+            </div>
+          </div>
+        </section>
+
+        <section id="labs" class="panel">
+          <div class="section-heading">
+            <h3>Practical labs</h3>
+            <span class="chip">Sandboxed</span>
+          </div>
+          <div id="lab-list" class="stacked-list"></div>
+        </section>
+
+        <section id="projects" class="panel">
+          <div class="section-heading">
+            <h3>Projects & assessments</h3>
+            <span class="chip">Evidence</span>
+          </div>
+          <div id="project-list" class="card-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/client.js"></script>
+  </body>
+</html>
