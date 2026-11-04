@@ -69,6 +69,10 @@ function renderSummary(data) {
     .join('');
 }
 
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 function renderProfile(data) {
   const summaryGrid = document.getElementById('summary-grid');
   const profileCard = document.createElement('div');
@@ -76,16 +80,16 @@ function renderProfile(data) {
 
   const recentChallenges = (data.recentChallenges || []).map(item => `
     <li class="priority-item">
-      <strong>${item.status}</strong> · ${item.id}<br />
-      <span class="muted">${item.summary}</span>
+      <strong>${esc(item.status)}</strong> · ${esc(item.id)}<br />
+      <span class="muted">${esc(item.summary)}</span>
     </li>
   `).join('') || '<li class="priority-item">No evidence yet — complete a challenge to start your learning trail.</li>';
 
   profileCard.innerHTML = `
-    <h3>${data.learner.name}</h3>
-    <strong>${data.learner.streak} day streak</strong>
-    <p class="muted">${data.learner.role}</p>
-    <p class="muted">Next milestone: ${data.learner.nextMilestone}</p>
+    <h3>${esc(data.learner.name)}</h3>
+    <strong>${esc(data.learner.streak)} day streak</strong>
+    <p class="muted">${esc(data.learner.role)}</p>
+    <p class="muted">Next milestone: ${esc(data.learner.nextMilestone)}</p>
     <div class="profile-evidence">
       <h4>Recent evidence</h4>
       <ul class="priority-list">${recentChallenges}</ul>
@@ -252,6 +256,43 @@ function renderProjects(data) {
   `).join('');
 }
 
+// Learner code runs in a Web Worker inside the learner's own browser with a time limit.
+// The server never executes submitted code.
+function runChallengeInBrowser(challenge, code) {
+  if (challenge.id !== 'js-sum-odds') {
+    return Promise.resolve({
+      passed: false,
+      unsupported: true,
+      feedback: 'Python challenges need a code sandbox, which is not configured yet. JavaScript challenges run in your browser.'
+    });
+  }
+
+  return new Promise(resolve => {
+    const source = `onmessage = (e) => {
+      try {
+        const fn = new Function(e.data.code + '\\n; return sumOdds;')();
+        for (const t of e.data.tests) {
+          const actual = fn(t.input);
+          if (Number(actual) !== Number(t.expected)) {
+            postMessage({ passed: false, feedback: 'Test failed for input ' + JSON.stringify(t.input) + '. Expected ' + t.expected + ' but got ' + JSON.stringify(actual) + '.' });
+            return;
+          }
+        }
+        postMessage({ passed: true, feedback: 'Challenge passed. Your function handles the odd-sum logic correctly.' });
+      } catch (err) {
+        postMessage({ passed: false, feedback: String(err && err.message || err) });
+      }
+    };`;
+    const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+    const worker = new Worker(url);
+    const finish = result => { clearTimeout(timer); worker.terminate(); URL.revokeObjectURL(url); resolve(result); };
+    const timer = setTimeout(() => finish({ passed: false, feedback: 'Your code ran longer than 3 seconds and was stopped (infinite loop?).' }), 3000);
+    worker.onmessage = e => finish(e.data);
+    worker.onerror = e => finish({ passed: false, feedback: e.message || 'Your code raised an exception.' });
+    worker.postMessage({ code, tests: challenge.tests });
+  });
+}
+
 function renderChallenges() {
   fetch('/api/challenges')
     .then(response => response.json())
@@ -280,17 +321,28 @@ function renderChallenges() {
       document.querySelectorAll('[data-submit]').forEach(button => {
         button.addEventListener('click', async () => {
           const challengeId = button.dataset.submit;
+          const challenge = challenges.find(item => item.id === challengeId);
           const textarea = document.querySelector(`textarea[data-challenge-id="${challengeId}"]`);
-          const payload = await apiRequest('/api/challenges/submit', {
-            method: 'POST',
-            body: JSON.stringify({ challengeId, code: textarea.value })
-          });
           const feedback = document.querySelector(`[data-feedback="${challengeId}"]`);
-          feedback.textContent = payload.feedback;
-          feedback.style.color = payload.passed ? '#34d399' : '#fbbf24';
 
-          if (state.token) {
-            loadDashboard();
+          button.disabled = true;
+          feedback.textContent = 'Running...';
+          const result = await runChallengeInBrowser(challenge, textarea.value);
+          button.disabled = false;
+
+          feedback.textContent = result.feedback;
+          feedback.style.color = result.passed ? '#34d399' : '#fbbf24';
+
+          if (result.unsupported) return;
+
+          try {
+            await apiRequest('/api/challenges/submit', {
+              method: 'POST',
+              body: JSON.stringify({ challengeId, passed: result.passed, feedback: result.feedback })
+            });
+            if (state.token) loadDashboard();
+          } catch (error) {
+            feedback.textContent += ` (could not save progress: ${error.message})`;
           }
         });
       });
@@ -312,21 +364,26 @@ document.getElementById('coach-form').addEventListener('submit', async (event) =
   event.preventDefault();
   const input = document.getElementById('coach-input');
   const output = document.getElementById('coach-output');
-
-  output.textContent = 'Thinking through a practical learning plan...';
   output.classList.remove('empty-state');
 
-  const payload = await apiRequest('/api/coach', {
-    method: 'POST',
-    body: JSON.stringify({ prompt: input.value })
-  });
+  if (!state.token) {
+    output.textContent = 'Please sign in first. The AI coach is available to signed-in learners.';
+    return;
+  }
 
-  output.innerHTML = `
-    <strong>Coach guidance</strong><br />
-    ${payload.response}<br /><br />
-    <strong>Hint ladder</strong><br />
-    ${payload.hints.map(hint => `• ${hint}<br />`).join('')}
-  `;
+  output.textContent = 'Thinking...';
+
+  try {
+    const payload = await apiRequest('/api/coach', {
+      method: 'POST',
+      body: JSON.stringify({ prompt: input.value })
+    });
+    output.textContent = payload.response;
+    output.style.whiteSpace = 'pre-wrap';
+  } catch (error) {
+    // Show the real failure (missing key, rate limit, API error); never a fake answer.
+    output.textContent = error.message;
+  }
 });
 
 function attachAuthForms() {
