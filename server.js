@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
-const OpenAI = require('openai');
+const { AIService } = require('./ai');
+const { streamToClient } = require('./ai/sse');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,7 +37,21 @@ function writeStore(filePath, data) {
 }
 
 function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (typeof stored !== 'string') return false;
+  if (stored.startsWith('scrypt$')) {
+    const [, salt, hash] = stored.split('$');
+    const actual = crypto.scryptSync(password, salt, 64);
+    const expected = Buffer.from(hash, 'hex');
+    return expected.length === actual.length && crypto.timingSafeEqual(actual, expected);
+  }
+  // Legacy unsalted SHA-256 accounts: still accepted once, then upgraded on login.
+  return crypto.createHash('sha256').update(password).digest('hex') === stored;
 }
 
 function createToken() {
@@ -88,8 +103,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const aiProvider = (process.env.AI_PROVIDER || 'demo').toLowerCase();
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const ai = new AIService({ dataDir: DATA_DIR });
 
 const competencyData = [
   {
@@ -412,110 +426,6 @@ function recordChallengeHistory(userId, challengeId, result) {
   return nextUser;
 }
 
-async function resolveCoachResponse(prompt) {
-  const trimmed = (prompt || '').trim();
-  if (!trimmed) {
-    return {
-      response: 'Ask me about a skill, a project, or a debugging problem and I will turn it into a step-by-step learning plan.',
-      hints: ['Concept first', 'Practice next', 'Validate your output']
-    };
-  }
-
-  const systemPrompt = `You are an expert technology learning coach for iAcademyAI. Teach using a progressive hint model. The learner is working on practical technology skills, not content memorization. Prioritize conceptual understanding, debugging, and evidence-driven learning. Keep answers practical, encouraging, and focused on skill mastery.`;
-
-  if (aiProvider === 'openai' && openai && process.env.OPENAI_API_KEY) {
-    const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 300
-    });
-
-    const content = completion.choices?.[0]?.message?.content?.trim();
-    if (content) {
-      return {
-        response: content,
-        hints: ['Start with the root cause', 'Try the smallest experiment', 'Validate with evidence']
-      };
-    }
-  }
-
-  const lowerPrompt = trimmed.toLowerCase();
-  const generated = [];
-
-  if (lowerPrompt.includes('debug') || lowerPrompt.includes('error')) {
-    generated.push('Start by reproducing the issue with the smallest possible input and reading the exact error output before changing code.');
-  }
-  if (lowerPrompt.includes('javascript') || lowerPrompt.includes('js')) {
-    generated.push('Review inputs, write one small function at a time, and test edge cases such as empty arrays, negative values, and duplicates.');
-  }
-  if (lowerPrompt.includes('python') || lowerPrompt.includes('data')) {
-    generated.push('Check the shape of your data, verify types, and test the transformation on a single sample before scaling it to the full dataset.');
-  }
-  if (lowerPrompt.includes('cyber') || lowerPrompt.includes('security')) {
-    generated.push('Map the scenario to attacker behavior, validate the control, and emphasize evidence-based containment and reporting.');
-  }
-
-  if (!generated.length) {
-    generated.push('Break the challenge into steps: identify the skill gap, define the goal, build a small prototype, and test it against evidence.');
-  }
-
-  return {
-    response: `${generated.join(' ')} This keeps the work skill-based and gives you practical evidence of competence.`,
-    hints: ['Hint 1: Clarify the concept', 'Hint 2: Choose the right tool', 'Hint 3: Validate with evidence']
-  };
-}
-
-function runChallenge(challenge, submittedCode) {
-  if (!challenge) {
-    return { passed: false, feedback: 'Challenge not found.' };
-  }
-
-  try {
-    const tests = challenge.tests;
-
-    if (challenge.id === 'js-sum-odds') {
-      const runner = new Function('nums', `${submittedCode}; return sumOdds(nums);`);
-      const failedTest = tests.find(({ input, expected }) => {
-        const actual = runner(input);
-        return Number(actual) !== Number(expected);
-      });
-
-      if (failedTest) {
-        return { passed: false, feedback: `Test failed for input ${JSON.stringify(failedTest.input)}. Expected ${failedTest.expected} but got a different result.` };
-      }
-
-      return { passed: true, feedback: 'Challenge passed. Your function handles the odd-sum logic correctly.' };
-    }
-
-    if (challenge.id === 'py-list-normalizer') {
-      const normalized = (function () {
-        const script = submittedCode + '\nreturn normalize(values);';
-        const runner = new Function('values', script);
-        const output = runner([10, 20, 30]);
-        return output;
-      })();
-
-      const expected = [0, 0.5, 1];
-      if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
-        return { passed: false, feedback: 'The normalization output does not match the expected values.' };
-      }
-
-      return { passed: true, feedback: 'Challenge passed. The list normalization logic is correct.' };
-    }
-
-    return { passed: false, feedback: 'Challenge type not supported in the current sandbox.' };
-  } catch (error) {
-    return {
-      passed: false,
-      feedback: error.message || 'Your code raised an exception during evaluation.'
-    };
-  }
-}
-
 app.get('/api/overview', (req, res) => {
   res.json(getOverview());
 });
@@ -599,8 +509,12 @@ app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body || {};
   const user = findUserByEmail(email);
 
-  if (!user || hashPassword(String(password || '')) !== user.password) {
+  if (!user || !verifyPassword(String(password || ''), user.password)) {
     return res.status(401).json({ error: 'Invalid email or password.' });
+  }
+
+  if (!String(user.password).startsWith('scrypt$')) {
+    updateUserProfile(user.id, { password: hashPassword(String(password)) });
   }
 
   const token = createToken();
@@ -623,16 +537,43 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-app.post('/api/coach', async (req, res) => {
-  const { prompt } = req.body || {};
-  const result = await resolveCoachResponse(prompt);
-  res.json(result);
+// ---------- AI (OpenAI) ----------
+app.get('/api/ai/status', requireAuth, (req, res) => {
+  res.json(ai.status(req.user.id));
 });
 
+app.post('/api/ai/chat', requireAuth, (req, res) => {
+  streamToClient(res, signal => ai.streamChat(req.user.id, req.body || {}, signal));
+});
+
+app.post('/api/ai/lecture', requireAuth, (req, res) => {
+  streamToClient(res, signal => ai.streamLecture(req.user.id, req.body || {}, signal));
+});
+
+// Legacy single-shot coach endpoint, now backed by the real model (no canned answers).
+app.post('/api/coach', requireAuth, async (req, res) => {
+  const prompt = String((req.body || {}).prompt || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'Ask a question first.' });
+
+  try {
+    const response = await ai.complete(req.user.id, { messages: [{ role: 'user', content: prompt }], mode: 'tutor' });
+    res.json({ response });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.message || 'The AI request failed.' });
+  }
+});
+
+// Challenges run in the learner's browser (Web Worker). The server never executes
+// submitted code; it only records the outcome the browser reports.
 app.post('/api/challenges/submit', (req, res) => {
-  const { challengeId, code } = req.body || {};
+  const { challengeId, passed, feedback } = req.body || {};
   const challenge = challengeCatalog.find(item => item.id === challengeId);
-  const result = runChallenge(challenge, code || '');
+  if (!challenge) return res.status(404).json({ error: 'Challenge not found.' });
+
+  const result = {
+    passed: Boolean(passed),
+    feedback: String(feedback || '').slice(0, 300) || (passed ? 'Challenge passed.' : 'Challenge not passed.')
+  };
 
   const user = getSessionUser(req);
   if (user) {

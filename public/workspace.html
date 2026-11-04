@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iAcademy Workspace</title>
+    <link rel="stylesheet" href="/workspace.css" />
+  </head>
+  <body>
+    <div class="ws">
+      <header class="titlebar">
+        <a class="brand" href="/" title="Back to dashboard"><span class="brand-mark">IA</span><span>iAcademy</span></a>
+        <button class="palette-btn" id="palette-open" type="button">Search commands <kbd>Ctrl K</kbd></button>
+        <div class="title-actions">
+          <select id="model-select" title="AI model" aria-label="AI model"></select>
+          <button class="icon-btn" id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">◐</button>
+        </div>
+      </header>
+
+      <div class="body">
+        <nav class="activitybar" aria-label="Activity bar">
+          <button class="act active" data-view="explorer" title="Explorer" aria-label="Explorer">
+            <svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          </button>
+          <button class="act" data-view="lectures" title="Lecture generator" aria-label="Lecture generator">
+            <svg viewBox="0 0 24 24"><path d="M4 5h16v11H4zM8 20h8M12 16v4"/></svg>
+          </button>
+          <button class="act" id="act-chat" title="AI assistant" aria-label="AI assistant">
+            <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>
+          </button>
+          <span class="spacer"></span>
+          <a class="act" href="/" title="Dashboard" aria-label="Dashboard">
+            <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></svg>
+          </a>
+        </nav>
+
+        <aside class="sidebar" id="sidebar">
+          <section class="view" id="view-explorer">
+            <div class="side-head">
+              <span>Explorer</span>
+              <span class="side-actions">
+                <button class="icon-btn" id="new-file" type="button" title="New file" aria-label="New file">＋</button>
+              </span>
+            </div>
+            <div id="tree" class="tree" role="tree"></div>
+          </section>
+
+          <section class="view hidden" id="view-lectures">
+            <div class="side-head"><span>Lecture generator</span></div>
+            <form id="lecture-form" class="lecture-form">
+              <label>Topic
+                <input id="lec-topic" type="text" maxlength="200" placeholder="e.g. Git branching and merging" required />
+              </label>
+              <label>Level
+                <select id="lec-level">
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </label>
+              <label>Length
+                <select id="lec-depth">
+                  <option value="short">Short (~10 min)</option>
+                  <option value="standard" selected>Standard (~30 min)</option>
+                  <option value="deep">Deep dive (~60 min)</option>
+                </select>
+              </label>
+              <label>Focus <span class="muted">(optional)</span>
+                <textarea id="lec-focus" rows="3" maxlength="600" placeholder="e.g. use Python examples, prepare me for an interview"></textarea>
+              </label>
+              <button class="primary" type="submit" id="lec-submit">Generate lecture</button>
+              <p class="muted small">The lecture streams into a new file in <code>lectures/</code> and opens in preview. You can edit it like any other file.</p>
+            </form>
+          </section>
+        </aside>
+
+        <main class="editor-area">
+          <div class="tabs" id="tabs" role="tablist"></div>
+          <div class="toolbar" id="toolbar">
+            <div class="crumbs" id="crumbs"></div>
+            <div class="tool-actions">
+              <button class="tool hidden" id="btn-preview" type="button">Preview</button>
+              <button class="tool hidden" id="btn-run" type="button">▶ Run</button>
+              <button class="tool hidden" id="btn-stop-lecture" type="button">■ Stop generating</button>
+            </div>
+          </div>
+          <div class="editor-split" id="editor-split">
+            <div class="editor-pane" id="editor-pane">
+              <div id="editor-mount" class="editor-mount"></div>
+              <div class="empty" id="empty">
+                <h2>iAcademy Workspace</h2>
+                <p>Open a file, or generate a lecture from the <strong>Lecture generator</strong>.</p>
+                <p class="muted">Ask the assistant anything from the chat button in the bottom-right corner.</p>
+              </div>
+            </div>
+            <div class="preview-pane hidden" id="preview-pane"><article class="md" id="preview"></article></div>
+          </div>
+
+          <section class="bottom" id="bottom">
+            <div class="bottom-tabs">
+              <button class="btab active" data-panel="output" type="button">Output</button>
+              <button class="btab" data-panel="activity" type="button">AI Activity</button>
+              <span class="spacer"></span>
+              <button class="icon-btn" id="bottom-clear" type="button" title="Clear" aria-label="Clear panel">⌫</button>
+            </div>
+            <pre class="bpanel" id="panel-output"></pre>
+            <pre class="bpanel hidden" id="panel-activity"></pre>
+          </section>
+        </main>
+      </div>
+
+      <footer class="statusbar">
+        <span id="st-file">No file</span>
+        <span class="spacer"></span>
+        <span id="st-ai">AI: checking…</span>
+        <span id="st-usage"></span>
+      </footer>
+    </div>
+
+    <!-- Minimized chat assistant -->
+    <button id="chat-launcher" class="chat-launcher" type="button" aria-label="Open AI assistant" title="AI assistant">
+      <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>
+      <span class="dot hidden" id="chat-dot"></span>
+    </button>
+
+    <section id="chat" class="chat hidden" aria-label="AI assistant">
+      <header class="chat-head">
+        <strong>Assistant</strong>
+        <select id="chat-mode" aria-label="Teaching mode"></select>
+        <span class="spacer"></span>
+        <button class="icon-btn" id="chat-clear" type="button" title="New conversation" aria-label="New conversation">⟲</button>
+        <button class="icon-btn" id="chat-min" type="button" title="Minimize" aria-label="Minimize">—</button>
+      </header>
+      <div class="chat-body" id="chat-body" aria-live="polite"></div>
+      <div class="chips" id="chips">
+        <button type="button" data-q="Explain this code step by step.">Explain code</button>
+        <button type="button" data-q="Find bugs in this code and explain how to fix them.">Debug</button>
+        <button type="button" data-q="Quiz me on this with 3 questions, one at a time.">Quiz me</button>
+        <button type="button" data-q="/lecture ">Lecture…</button>
+      </div>
+      <form id="chat-form" class="chat-form">
+        <label class="ctx"><input type="checkbox" id="chat-ctx" /> Share open file &amp; selection</label>
+        <div class="row">
+          <textarea id="chat-input" rows="1" placeholder="Ask anything, or type /lecture <topic>" aria-label="Message"></textarea>
+          <button class="primary" id="chat-send" type="submit">Send</button>
+        </div>
+      </form>
+    </section>
+
+    <div id="palette" class="palette hidden" role="dialog" aria-label="Command palette">
+      <div class="palette-box">
+        <input id="palette-input" type="text" placeholder="Type a command or file name…" autocomplete="off" />
+        <ul id="palette-list"></ul>
+      </div>
+    </div>
+
+    <script src="/vendor/marked.umd.js"></script>
+    <script src="/workspace.js"></script>
+  </body>
+</html>

@@ -91,6 +91,15 @@ button, textarea {
   transition: 0.2s ease;
 }
 
+.nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-decoration: none;
+}
+
+.coach-output a { color: var(--primary); }
+
 .nav-item.active,
 .nav-item:hover {
   background: rgba(88, 166, 255, 0.12);
